@@ -1,0 +1,4 @@
+interface:
+  display_name: "小红书机会提醒"
+  short_description: "填写一张简单设置表，每天收到去重后的小红书新机会"
+  default_prompt: "使用 $xiaohongshu-opportunity-monitor-zh，先让我填写监测设置表，再帮我建立小红书每日机会提醒。"
