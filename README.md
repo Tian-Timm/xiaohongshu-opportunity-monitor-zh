@@ -24,13 +24,33 @@
 
 ### 1. 安装
 
-使用 Skills CLI 安装：
+#### 方法 A：直接让 Agent 安装（推荐给普通用户）
+
+把下面整段话复制给支持 Skills 安装的 Agent：
+
+```text
+请帮我从下面的 GitHub 仓库安装这个 Skill：
+
+https://github.com/Tian-Timm/xiaohongshu-opportunity-monitor-zh
+
+Skill 位于：
+skills/xiaohongshu-opportunity-monitor-zh
+
+请安装到我的个人 Skills 目录。安装前检查 SKILL.md 和 scripts，
+安装完成后告诉我是否成功。
+```
+
+Agent 可能会请求联网和写入个人 Skills 目录的权限，请确认授权范围后再继续。安装成功后，在下一轮对话中调用这个 Skill。如果 Agent 不具备 Skill 安装、联网或本地文件写入能力，请改用下面的方法。
+
+#### 方法 B：使用 Skills CLI
 
 ```bash
 npx -y skills add Tian-Timm/xiaohongshu-opportunity-monitor-zh -g --all
 ```
 
-也可以手动把下面的文件夹复制到 Agent 的 Skills 目录：
+#### 方法 C：手动复制
+
+把下面的文件夹复制到 Agent 的个人 Skills 目录：
 
 ```text
 skills/xiaohongshu-opportunity-monitor-zh/
@@ -60,7 +80,7 @@ Agent 至少需要：
 每天帮我找小红书上新发布的 AI 产品实习，不要重复昨天的帖子。
 ```
 
-Skill 还会识别 `/小红书机会` 和 `/xhs-monitor` 这两个文本快捷指令。它们是否能从斜杠菜单直接触发，取决于所使用的 Agent 客户端。
+在 Codex 中，启用的 Skill 会出现在斜杠列表里，也可以使用 `$xiaohongshu-opportunity-monitor-zh` 明确调用。Skill 还会识别 `/小红书机会` 和 `/xhs-monitor` 这两个文本快捷指令；这两个自定义别名是否会显示为独立菜单项，取决于所使用的 Agent 客户端。
 
 ### 4. 填写搜索设置
 
@@ -157,7 +177,7 @@ xiaohongshu-opportunity-monitor-zh/
 - 小红书的登录验证、风控和页面结构可能变化；
 - 图片型帖子采用“扩大人工核实范围”的方式提高召回率，并不保证自动识别全部图片文字；
 - 是否支持每日自动运行，取决于 Agent 是否提供定时任务能力；
-- `/小红书机会` 是文本快捷指令，真正的斜杠菜单注册需要客户端或插件支持；
+- 启用的 Skill 可以出现在 Codex 的斜杠列表里，但 `/小红书机会` 这个自定义别名是否成为独立菜单项，取决于客户端；
 - 本项目不是小红书官方产品，与小红书无隶属或合作关系。
 
 ## 作者与方法来源
