@@ -17,7 +17,9 @@ from zoneinfo import ZoneInfo
 VERSION = 1
 DEFAULT_TZ = "Asia/Shanghai"
 NOTE_ID_RE = re.compile(r"/(?:search_result|explore)/([0-9a-f]{24})(?:[/?]|$)", re.I)
-TRACKING_KEYS = {
+# These values are removed only from the internal deduplication URL. Some of
+# them, especially xsec_token, are required when a person opens the post.
+DEDUP_QUERY_KEYS = {
     "xsec_token",
     "xsec_source",
     "source",
@@ -57,11 +59,52 @@ def canonicalize_url(url: str) -> str:
     kept = []
     for key, value in parse_qsl(parts.query, keep_blank_values=True):
         lowered = key.lower()
-        if lowered in TRACKING_KEYS or lowered.startswith("utm_"):
+        if lowered in DEDUP_QUERY_KEYS or lowered.startswith("utm_"):
             continue
         kept.append((key, value))
     path = re.sub(r"/+$", "", parts.path) or "/"
     return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), path, urlencode(kept), ""))
+
+
+def report_url_error(url: str) -> str:
+    if not url:
+        return "reportable candidate is missing its original URL"
+    parts = urlsplit(url)
+    host = (parts.hostname or "").lower()
+    if host in {"xiaohongshu.com", "www.xiaohongshu.com"} and re.fullmatch(
+        r"/search_result/[0-9a-f]{24}/?", parts.path, re.I
+    ):
+        query = {key.lower(): value for key, value in parse_qsl(parts.query, keep_blank_values=True)}
+        if not query.get("xsec_token"):
+            return (
+                "Xiaohongshu search_result URL is missing xsec_token; "
+                "capture the complete href from the page instead of rebuilding it from note_id"
+            )
+    return ""
+
+
+def report_view(record: dict) -> dict:
+    """Expose a single unambiguous URL while keeping dedup fields internal."""
+    url = record.get("latest_url") or record.get("canonical_url", "")
+    url_error = report_url_error(url)
+    if url_error:
+        label = record.get("note_id") or record.get("stable_id") or record.get("title") or "unknown record"
+        raise ValueError(f"{url_error}: {label}")
+    return {
+        "stable_id": record.get("stable_id", ""),
+        "note_id": record.get("note_id", ""),
+        "title": record.get("title", ""),
+        "author": record.get("author", ""),
+        "company": record.get("company", ""),
+        "role": record.get("role", ""),
+        "location": record.get("location", ""),
+        "published_text": record.get("published_text", ""),
+        "published_at": record.get("published_at"),
+        "queries": record.get("queries", []),
+        "reason": record.get("reason", ""),
+        "status": record.get("status", ""),
+        "url": url,
+    }
 
 
 def extract_note_id(candidate: dict) -> str:
@@ -241,7 +284,8 @@ def command_ingest(args: argparse.Namespace) -> int:
         for query in query_values:
             query_metrics.setdefault(query, {"result_rows": 0, "new_reportable": 0})["result_rows"] += 1
         note_id = extract_note_id(candidate)
-        canonical_url = canonicalize_url(str(candidate.get("url") or ""))
+        original_url = str(candidate.get("url") or "")
+        canonical_url = canonicalize_url(original_url)
         fp = fingerprint(candidate)
         identity = note_id or canonical_url or fp
         if not identity:
@@ -259,6 +303,8 @@ def command_ingest(args: argparse.Namespace) -> int:
 
         if existing_key:
             counts["duplicates"] += 1
+            if original_url and not report_url_error(original_url):
+                seen[existing_key]["latest_url"] = original_url
             if identity not in seen:
                 seen[identity] = {
                     "stable_id": stable_id(note_id, identity, state),
@@ -266,7 +312,7 @@ def command_ingest(args: argparse.Namespace) -> int:
                     "title": candidate.get("title") or "",
                     "author": candidate.get("author") or "",
                     "canonical_url": canonical_url,
-                    "latest_url": candidate.get("url") or "",
+                    "latest_url": original_url,
                     "first_seen_at": run_at.isoformat(),
                     "status": "duplicate",
                     "duplicate_of": existing_key,
@@ -285,6 +331,12 @@ def command_ingest(args: argparse.Namespace) -> int:
         else:
             status = requested
 
+        if status in REPORTABLE:
+            url_error = report_url_error(original_url)
+            if url_error:
+                label = note_id or str(candidate.get("title") or "unknown candidate")
+                raise ValueError(f"{url_error}: {label}")
+
         record = {
             "stable_id": stable_id(note_id, identity, state),
             "note_id": note_id,
@@ -296,7 +348,7 @@ def command_ingest(args: argparse.Namespace) -> int:
             "published_text": candidate.get("published_text") or "",
             "published_at": published_at.isoformat() if published_at else None,
             "canonical_url": canonical_url,
-            "latest_url": candidate.get("url") or "",
+            "latest_url": original_url,
             "queries": sorted(set(query_values or [])),
             "reason": candidate.get("reason") or "",
             "first_seen_at": run_at.isoformat(),
@@ -305,7 +357,7 @@ def command_ingest(args: argparse.Namespace) -> int:
         }
         if status in REPORTABLE:
             record["notified_at"] = run_at.isoformat()
-            reportable.append(record)
+            reportable.append(report_view(record))
             for query in query_values:
                 query_metrics[query]["new_reportable"] += 1
         seen[identity] = record
@@ -384,7 +436,7 @@ def command_list(args: argparse.Namespace) -> int:
             "title": record.get("title", ""),
             "author": record.get("author", ""),
             "status": record.get("status", ""),
-            "url": record.get("latest_url") or record.get("canonical_url", ""),
+            "url": report_view(record)["url"],
         })
     print(json.dumps(rows, ensure_ascii=False, indent=2))
     return 0

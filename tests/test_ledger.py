@@ -19,7 +19,7 @@ SPEC.loader.exec_module(ledger)
 
 
 class LedgerTests(unittest.TestCase):
-    def test_canonicalize_url_removes_tracking_parameters(self) -> None:
+    def test_canonicalize_url_removes_deduplication_parameters(self) -> None:
         url = "https://www.xiaohongshu.com/explore/0123456789abcdef01234567/?xsec_token=secret&utm_source=test&keep=1#top"
         self.assertEqual(
             ledger.canonicalize_url(url),
@@ -112,6 +112,129 @@ class LedgerTests(unittest.TestCase):
             stats = json.loads(stats_output.getvalue())
             self.assertEqual(stats["reviews"]["valuable"], 1)
             self.assertEqual(stats["reviews"]["unreviewed"], 1)
+
+    def test_ingest_reports_original_signed_url_not_canonical_url(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "state.json"
+            payload_path = Path(temp_dir) / "scan.json"
+            raw_url = (
+                "https://www.xiaohongshu.com/search_result/0123456789abcdef01234567"
+                "?xsec_token=signed-token&xsec_source=pc_search&source=web_search_result_notes"
+            )
+            ledger.save_json(state_path, ledger.new_state("test", 14, "Asia/Shanghai"))
+            ledger.save_json(
+                payload_path,
+                {
+                    "run_at": "2026-07-17T21:00:00+08:00",
+                    "queries": ["AI 产品实习"],
+                    "candidates": [
+                        {
+                            "title": "AI 产品实习",
+                            "author": "招聘账号",
+                            "url": raw_url,
+                            "published_at": "2026-07-17T12:00:00+08:00",
+                            "classification": "verified_active",
+                            "query": "AI 产品实习",
+                        }
+                    ],
+                },
+            )
+
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                ledger.command_ingest(argparse.Namespace(state=str(state_path), input=str(payload_path)))
+
+            report = json.loads(output.getvalue())["new_reportable"][0]
+            self.assertEqual(report["url"], raw_url)
+            self.assertNotIn("canonical_url", report)
+            self.assertNotIn("latest_url", report)
+
+            state = ledger.load_json(state_path)
+            record = next(iter(state["seen_posts"].values()))
+            self.assertEqual(record["latest_url"], raw_url)
+            self.assertEqual(
+                record["canonical_url"],
+                "https://www.xiaohongshu.com/search_result/0123456789abcdef01234567",
+            )
+
+    def test_ingest_rejects_reportable_search_result_without_xsec_token(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "state.json"
+            payload_path = Path(temp_dir) / "scan.json"
+            ledger.save_json(state_path, ledger.new_state("test", 14, "Asia/Shanghai"))
+            ledger.save_json(
+                payload_path,
+                {
+                    "run_at": "2026-07-17T21:00:00+08:00",
+                    "queries": ["AI 产品实习"],
+                    "candidates": [
+                        {
+                            "title": "AI 产品实习",
+                            "url": "https://www.xiaohongshu.com/search_result/0123456789abcdef01234567",
+                            "published_at": "2026-07-17T12:00:00+08:00",
+                            "classification": "verified_active",
+                            "query": "AI 产品实习",
+                        }
+                    ],
+                },
+            )
+
+            with self.assertRaisesRegex(ValueError, "xsec_token"):
+                ledger.command_ingest(argparse.Namespace(state=str(state_path), input=str(payload_path)))
+
+            state = ledger.load_json(state_path)
+            self.assertEqual(state["seen_posts"], {})
+
+    def test_duplicate_scan_refreshes_stored_open_url(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "state.json"
+            payload_path = Path(temp_dir) / "scan.json"
+            note_id = "0123456789abcdef01234567"
+            signed_url = (
+                f"https://www.xiaohongshu.com/search_result/{note_id}"
+                "?xsec_token=fresh-token&xsec_source=pc_search"
+            )
+            state = ledger.new_state("test", 14, "Asia/Shanghai")
+            state["seen_posts"][note_id] = {
+                "stable_id": "XHS-234567",
+                "note_id": note_id,
+                "title": "AI 产品实习",
+                "author": "招聘账号",
+                "canonical_url": f"https://www.xiaohongshu.com/search_result/{note_id}",
+                "latest_url": f"https://www.xiaohongshu.com/search_result/{note_id}",
+                "status": "verified_active",
+                "fingerprint": "",
+            }
+            ledger.save_json(state_path, state)
+            ledger.save_json(
+                payload_path,
+                {
+                    "run_at": "2026-07-17T21:00:00+08:00",
+                    "queries": ["AI 产品实习"],
+                    "candidates": [
+                        {
+                            "note_id": note_id,
+                            "title": "AI 产品实习",
+                            "author": "招聘账号",
+                            "url": signed_url,
+                            "published_at": "2026-07-17T12:00:00+08:00",
+                            "classification": "verified_active",
+                            "query": "AI 产品实习",
+                        }
+                    ],
+                },
+            )
+
+            with contextlib.redirect_stdout(io.StringIO()):
+                ledger.command_ingest(argparse.Namespace(state=str(state_path), input=str(payload_path)))
+
+            refreshed = ledger.load_json(state_path)["seen_posts"][note_id]
+            self.assertEqual(refreshed["latest_url"], signed_url)
+
+            listed = io.StringIO()
+            with contextlib.redirect_stdout(listed):
+                ledger.command_list(argparse.Namespace(state=str(state_path), review="all"))
+            self.assertEqual(json.loads(listed.getvalue())[0]["url"], signed_url)
 
 
 if __name__ == "__main__":
