@@ -82,7 +82,7 @@ Agent 至少需要：
 每天帮我找小红书上新发布的 AI 产品实习，不要重复昨天的帖子。
 ```
 
-在 Codex 中，启用的 Skill 会出现在斜杠列表里，也可以使用 `$xiaohongshu-opportunity-monitor-zh` 明确调用。Skill 还会识别 `/小红书机会` 和 `/xhs-monitor` 这两个文本快捷指令；这两个自定义别名是否会显示为独立菜单项，取决于所使用的 Agent 客户端。
+在 Codex 中，安装并启用后，可在输入框键入 `/`，再从“技能”区选择“小红书机会提醒”；也可以使用 `$xiaohongshu-opportunity-monitor-zh` 明确调用。`/小红书机会` 和 `/xhs-monitor` 是文本快捷指令，不是独立的原生命令菜单项。
 
 ### 4. 填写搜索设置
 
@@ -168,12 +168,18 @@ xiaohongshu-opportunity-monitor-zh/
 ├── .gitignore
 ├── README.md
 ├── LICENSE
-├── tests/test_ledger.py          # 账本核心行为测试
+├── tests/
+│   ├── test_ledger.py            # 账本核心行为测试
+│   ├── test_review_server.py     # 审核页与会话行为测试
+│   └── test_daily_scan.py        # 每日扫描接入测试
 └── skills/
     └── xiaohongshu-opportunity-monitor-zh/
         ├── SKILL.md                 # Agent 工作流程与安全规则
         ├── agents/openai.yaml       # Skill 在界面中的名称与简介
-        └── scripts/ledger.py        # 日期过滤、去重和用户标记账本
+        └── scripts/
+            ├── ledger.py            # 日期过滤、去重和用户标记账本
+            ├── review_server.py     # 本机审核页与持久化审核会话
+            └── daily_scan.py        # 扫描成功后启动或复用审核页
 ```
 
 ## 已知限制
