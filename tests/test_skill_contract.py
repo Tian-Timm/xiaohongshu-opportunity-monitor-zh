@@ -27,6 +27,21 @@ class SkillContractTests(unittest.TestCase):
         self.assertIn("读取当前 URL 和 DOM", self.skill)
         self.assertIn("全部满足后才开始搜索", self.skill)
 
+    def test_scheduled_scan_navigates_directly_to_search_results(self) -> None:
+        self.assertIn(
+            "https://www.xiaohongshu.com/search_result"
+            "?keyword=<URL 编码关键词>&source=web_explore_feed",
+            self.skill,
+        )
+        self.assertIn("不得依赖在搜索框中按 Enter", self.skill)
+        self.assertIn("当前 URL 包含 `/search_result`", self.skill)
+
+    def test_scheduled_scan_recovers_the_browser_only_once(self) -> None:
+        self.assertIn("首次打开小红书页面或读取 DOM 超时", self.skill)
+        self.assertIn("按该浏览器技能的故障排查指引重新初始化一次", self.skill)
+        self.assertIn("最多恢复一次", self.skill)
+        self.assertIn("第二次仍失败时，本轮采集失败", self.skill)
+
     def test_missing_browser_stops_instead_of_falling_back(self) -> None:
         self.assertIn("Settings > Browser", self.skill)
         self.assertIn("新建任务后重试", self.skill)
